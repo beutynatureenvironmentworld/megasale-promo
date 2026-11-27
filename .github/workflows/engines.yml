@@ -1,0 +1,43 @@
+name: Engine smoke tests
+on:
+  push:
+    paths: ['.github/workflows/engines.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - {pkg: scrapy, code: "from scrapy.http import HtmlResponse; assert HtmlResponse(url='https://example.org',body=b'<h1>Offer</h1>').css('h1::text').get()=='Offer'"}
+          - {pkg: beautifulsoup4, code: "from bs4 import BeautifulSoup; assert BeautifulSoup('<h1>Offer</h1>','html.parser').h1.text=='Offer'"}
+          - {pkg: lxml, code: "from lxml import etree; assert etree.XML(b'<offer>test</offer>').text=='test'"}
+          - {pkg: selectolax, code: "from selectolax.parser import HTMLParser; assert HTMLParser('<h1>Offer</h1>').css_first('h1').text()=='Offer'"}
+          - {pkg: feedparser, code: "import feedparser; assert feedparser.parse('<rss version=\"2.0\"><channel><item><title>Offer</title></item></channel></rss>').entries[0].title=='Offer'"}
+          - {pkg: rank-bm25, code: "from rank_bm25 import BM25Okapi; assert len(BM25Okapi([['offer'],['sale']]).get_scores(['offer']))==2"}
+          - {pkg: duckdb, code: "import duckdb; assert duckdb.sql('select 42').fetchone()[0]==42"}
+          - {pkg: pydantic, code: "from pydantic import TypeAdapter; assert TypeAdapter(int).validate_python('42')==42"}
+          - {pkg: faiss-cpu, code: "import faiss, numpy as np; x=faiss.IndexFlatL2(2); x.add(np.array([[1,2]],dtype='float32')); assert x.ntotal==1"}
+          - {pkg: qdrant-client, code: "from qdrant_client import QdrantClient; assert QdrantClient(':memory:').get_collections().collections==[]"}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install and run
+        env:
+          PKG: ${{ matrix.pkg }}
+          CODE: ${{ matrix.code }}
+        run: |
+          set -o pipefail
+          mkdir -p evidence
+          (python -m pip install "$PKG" && python -m pip show "$PKG" && /usr/bin/time -v python -c "$CODE" && echo PASS) 2>&1 | tee evidence/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-${{ matrix.pkg }}
+          path: evidence/
