@@ -1,0 +1,48 @@
+name: Targeted engine retries
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/targeted-retries.yml']
+permissions:
+  contents: read
+jobs:
+  lightpanda:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: |
+          docker run -d --name lightpanda --network host lightpanda/browser:nightly lightpanda serve --host 127.0.0.1 --port 9222
+          mkdir -p /tmp/fixture
+          echo '<html><body><h1>Controlled coupon fixture</h1><p>LAB20</p></body></html>' > /tmp/fixture/index.html
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory /tmp/fixture &
+          pip install playwright
+          python3 - <<'PY'
+          import time
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              for i in range(15):
+                  try:
+                      b=p.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=3000)
+                      break
+                  except Exception:
+                      if i==14: raise
+                      time.sleep(2)
+              page=b.new_page()
+              page.goto("http://127.0.0.1:8765/")
+              assert page.locator("h1").inner_text()=="Controlled coupon fixture"
+              assert "LAB20" in page.locator("body").inner_text()
+              b.close()
+          print("LIGHTPANDA_CDP_FIXTURE_PASS")
+          PY
+      - if: always()
+        run: docker logs --tail 50 lightpanda
+  deerflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: astral-sh/setup-uv@v6
+      - run: |
+          git clone --depth 1 https://github.com/bytedance/deer-flow.git upstream
+          cd upstream/backend
+          uv sync --locked
+          uv run --no-sync python -c 'import app.gateway.app; print("DEERFLOW_GATEWAY_IMPORT_PASS")'
