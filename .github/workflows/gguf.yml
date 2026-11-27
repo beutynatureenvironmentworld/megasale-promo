@@ -1,0 +1,38 @@
+name: Large GGUF reasoning
+on:
+  push:
+    paths: ['.github/workflows/gguf.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        model: ['Qwen/Qwen3-32B-GGUF:Q4_K_M', 'Qwen/Qwen3-14B-GGUF:Q4_K_M', 'Qwen/Qwen3-8B-GGUF:Q4_K_M', 'Qwen/Qwen3-32B-GGUF:Q2_K', 'bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q4_K_M']
+    steps:
+      - name: Build and infer
+        env:
+          MODEL: ${{ matrix.model }}
+        run: |
+          set -o pipefail
+          mkdir evidence
+          df -h > evidence/resources.txt
+          free -m >> evidence/resources.txt
+          (
+          set -e
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git src
+          git -C src rev-parse HEAD
+          cmake -S src -B build -DLLAMA_CURL=ON
+          cmake --build build -j2 --target llama-cli
+          /usr/bin/time -v timeout 100m build/bin/llama-cli -hf "$MODEL" -c 1024 -n 128 -no-cnv -p 'Synthetic test: a merchant offers 20 percent off until 2027-01-01 in Canada. Extract discount, region, expiry. Do not invent a coupon code.'
+          ) 2>&1 | tee evidence/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gguf-evidence-${{ strategy.job-index }}
+          path: evidence/
