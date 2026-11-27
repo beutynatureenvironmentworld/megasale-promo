@@ -1,0 +1,127 @@
+name: Super teamwork marketplace evidence
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/super-team.yml','pipeline/super_team.py']
+permissions:
+  contents: read
+jobs:
+  search-and-ground:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install AI and extraction stack
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers accelerate sentence-transformers httpx beautifulsoup4 selectolax lxml extruct feedparser pydantic rapidfuzz rank-bm25 diskcache tenacity trafilatura playwright
+          python -m playwright install --with-deps chromium
+      - name: Start self-hosted SearXNG
+        run: |
+          mkdir -p /tmp/searxng-config
+          printf 'use_default_settings: true\nserver:\n  secret_key: "%s"\n  limiter: false\nsearch:\n  formats: [html, json]\n' "$(openssl rand -hex 32)" > /tmp/searxng-config/settings.yml
+          docker network create research
+          docker run -d --network research --name searxng -p 127.0.0.1:8888:8080 -v /tmp/searxng-config:/etc/searxng searxng/searxng:latest
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8888/ >/dev/null && exit 0; sleep 3; done
+          exit 1
+      - name: Start 4get and Vane
+        continue-on-error: true
+        run: |
+          git clone --depth 1 https://git.lolcat.ca/lolcat/4get.git /tmp/fourget
+          docker build -t megasale-4get /tmp/fourget
+          docker run -d --name fourget -e FOURGET_PROTO=http -p 127.0.0.1:8890:80 megasale-4get
+          docker run -d --network research --name vane -e SEARXNG_API_URL=http://searxng:8080 -p 127.0.0.1:3000:3000 itzcrazykns1337/vane:slim-latest
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8890/ >/dev/null && curl -fsS http://127.0.0.1:3000/ >/dev/null && exit 0; sleep 3; done
+          exit 1
+      - name: Main marketplace AI discovery
+        env:
+          SEARXNG_URL: http://127.0.0.1:8888
+          AI_MODEL: Qwen/Qwen2.5-0.5B-Instruct
+        run: python pipeline/marketplace_discovery.py
+      - name: Start Ollama and load tested models
+        continue-on-error: true
+        run: |
+          docker run -d --network research --name ollama -p 127.0.0.1:11434:11434 ollama/ollama:latest
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:11434/api/tags && break; sleep 2; done
+          docker exec ollama ollama pull qwen2.5:3b
+          docker exec ollama ollama pull nomic-embed-text
+      - name: Register Ollama and verify cited search
+        continue-on-error: true
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json,pathlib
+          def call(url,data=None,timeout=300):
+              req=urllib.request.Request(url,data=json.dumps(data).encode() if data is not None else None,headers={"Content-Type":"application/json"})
+              with urllib.request.urlopen(req,timeout=timeout) as r:return json.load(r)
+          base="http://127.0.0.1:3000"
+          registered=call(base+"/api/providers",{"type":"ollama","name":"MegaSale local","config":{"baseURL":"http://ollama:11434"}})
+          providers=call(base+"/api/providers")["providers"]
+          p=next(x for x in providers if x["name"]=="MegaSale local")
+          chat=next(m["key"] for m in p["chatModels"] if m["key"].startswith("qwen2.5:3b"))
+          embedding=next(m["key"] for m in p["embeddingModels"] if m["key"].startswith("nomic-embed-text"))
+          print("PROVIDER_REGISTERED",chat,embedding,flush=True)
+          result=call(base+"/api/search",{"chatModel":{"providerId":p["id"],"key":chat},"embeddingModel":{"providerId":p["id"],"key":embedding},"optimizationMode":"speed","sources":["web"],"query":"Find official eBay Black Friday sale pages. Cite sources and do not invent coupons.","history":[],"stream":False},timeout=420)
+          urls=[s.get("metadata",{}).get("url") for s in result.get("sources",[])]
+          print("VANE_SOURCES",urls,flush=True)
+          pathlib.Path("public").mkdir(exist_ok=True)
+          pathlib.Path("public/vane-provider-test.json").write_text(json.dumps({"chat":chat,"embedding":embedding,"sources":urls,"answer":result.get("message"),"status":"candidate_only"},indent=2))
+          assert urls and result.get("message"),"No cited answer"
+          PY
+      - name: Search API and crawler integration probes
+        env:
+          SEARXNG_URL: http://127.0.0.1:8888
+          FOURGET_URL: http://127.0.0.1:8890
+          VANE_URL: http://127.0.0.1:3000
+        run: python pipeline/multi_engine_research.py
+      - run: python pipeline/super_team.py
+      - run: python pipeline/policy_gate.py
+      - run: python pipeline/build.py
+      - run: python pipeline/live_discovery.py
+      - run: python pipeline/teamwork.py
+      - run: python pipeline/offer_quality_test.py
+      - run: python pipeline/hybrid_preview.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: super-team-evidence
+          path: public/
+  extra-crawlers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: scrapy
+            module: scrapy
+          - package: crawl4ai
+            module: crawl4ai
+          - package: scrapling
+            module: scrapling
+          - package: firecrawl-py
+            module: firecrawl
+          - package: crawlee
+            module: crawlee
+          - package: selenium
+            module: selenium
+          - package: qdrant-client
+            module: qdrant_client
+          - package: faiss-cpu
+            module: faiss
+          - package: haystack-ai
+            module: haystack
+          - package: llama-index
+            module: llama_index
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - env:
+          PACKAGE: ${{ matrix.package }}
+          MODULE: ${{ matrix.module }}
+        run: |
+          pip install "$PACKAGE"
+          python -c 'import importlib,os; importlib.import_module(os.environ["MODULE"]); print("IMPORT PASS",os.environ["PACKAGE"])'
