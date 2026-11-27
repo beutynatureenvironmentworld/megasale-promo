@@ -1,0 +1,47 @@
+name: 30 marketplace seasonal discovery
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/marketplace-seasonal.yml'
+      - 'pipeline/marketplace_discovery.py'
+permissions:
+  contents: read
+concurrency:
+  group: marketplace-seasonal
+  cancel-in-progress: false
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install tested extraction and AI packages
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers accelerate httpx beautifulsoup4 selectolax extruct feedparser pydantic rapidfuzz rank-bm25 diskcache tenacity
+      - name: Start isolated SearXNG JSON API
+        run: |
+          mkdir -p /tmp/searxng-config
+          printf 'use_default_settings: true\nserver:\n  secret_key: "%s"\n  limiter: false\nsearch:\n  formats: [html, json]\n' "$(openssl rand -hex 32)" > /tmp/searxng-config/settings.yml
+          docker run -d --name megasale-searxng -p 127.0.0.1:8888:8080 -v /tmp/searxng-config:/etc/searxng searxng/searxng:latest
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8888/ >/dev/null && exit 0; sleep 3; done
+          docker logs megasale-searxng
+          exit 1
+      - name: Discover 30 marketplace seasonal candidates
+        env:
+          SEARXNG_URL: http://127.0.0.1:8888
+          AI_MODEL: Qwen/Qwen2.5-0.5B-Instruct
+        run: python pipeline/marketplace_discovery.py
+      - run: python pipeline/policy_gate.py
+      - run: python pipeline/build.py
+      - run: python pipeline/teamwork.py
+      - run: python pipeline/hybrid_preview.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: marketplace-seasonal-audit
+          path: public/
