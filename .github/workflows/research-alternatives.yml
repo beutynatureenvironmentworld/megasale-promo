@@ -1,0 +1,92 @@
+name: Research alternatives isolated evaluation
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/research-alternatives.yml']
+permissions:
+  contents: read
+jobs:
+  python-agents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {package: local-deep-research, module: local_deep_research}
+          - {package: gpt-researcher, module: gpt_researcher}
+          - {package: browser-use, module: browser_use}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install and import upstream package
+        env:
+          PACKAGE: ${{ matrix.package }}
+          MODULE: ${{ matrix.module }}
+        run: |
+          pip install "$PACKAGE"
+          python -c 'import importlib,os; print("IMPORT_PASS",importlib.import_module(os.environ["MODULE"]).__name__)'
+      - name: Dependency consistency
+        run: pip check
+  source-agents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: local-deep-researcher, repo: 'https://github.com/langchain-ai/local-deep-researcher.git'}
+          - {name: deerflow, repo: 'https://github.com/bytedance/deer-flow.git'}
+          - {name: mirothinker, repo: 'https://github.com/MiroMindAI/MiroThinker.git'}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Clone upstream and inspect requirements
+        env:
+          REPO: ${{ matrix.repo }}
+        run: |
+          git clone --depth 1 "$REPO" upstream
+          cd upstream
+          git rev-parse HEAD
+          find . -maxdepth 3 -name pyproject.toml -o -name requirements.txt -o -name uv.lock -o -name Dockerfile
+          if [ -f pyproject.toml ]; then
+            pip install .
+          elif [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          elif [ -f backend/pyproject.toml ]; then
+            pip install ./backend
+          else
+            echo "No supported root Python install manifest. Upstream-specific setup required."
+            exit 1
+          fi
+          pip check
+  lightpanda:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: |
+          docker pull lightpanda/browser:nightly
+          docker run --rm lightpanda/browser:nightly --help
+  browser-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install browser-use playwright
+      - run: python -m playwright install --with-deps chromium
+      - run: |
+          python - <<'PY'
+          import browser_use
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              b=p.chromium.launch()
+              page=b.new_page()
+              page.set_content('<h1>Fixture merchant</h1><p>TEST20 expires tomorrow</p>')
+              assert page.locator("h1").inner_text()=="Fixture merchant"
+              b.close()
+          print("Browser backend fixture PASS; agent reasoning not tested")
+          PY
