@@ -12,9 +12,9 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 PAGES={
 "/robots.txt":b"User-agent: *\nDisallow: /private\nAllow: /\n",
-"/":b"<html><body><h1>Fixture shop</h1><a href='/season'>Seasonal promotion</a></body></html>",
-"/season":b"<html><body><article><h1>Fixture November sale</h1><p>Example discount 10 percent. Synthetic benchmark only.</p><a href='/terms'>Promotion terms</a></article></body></html>",
-"/terms":b"<html><body><h1>Promotion terms</h1><p>Fixture only: eligible region US; expiry 2099-11-30.</p></body></html>"
+"/":b"<html><body><h1>Fixture shop</h1><p>This fictional shop is part of an offline software evaluation. Its November campaign page describes a synthetic promotion, with separate eligibility and expiry terms. The fixture contains no real merchant information and no real coupon.</p><a href='/season'>Seasonal promotion</a></body></html>",
+"/season":b"<html><body><article><h1>Fixture November sale</h1><p>Example discount 10 percent. Synthetic benchmark only. The campaign applies only to fictional items and serves as a reproducible test of extracting a promotion and following its separate terms page. This is not an actual discount.</p><a href='/terms'>Promotion terms</a></article></body></html>",
+"/terms":b"<html><body><h1>Promotion terms</h1><p>Fixture only: eligible region US; expiry 2099-11-30. These fictional eligibility rules form the final evidence document of the offline research benchmark. They are provided for comparing the extraction and ranking behavior of the participating software engines.</p></body></html>"
 }
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
