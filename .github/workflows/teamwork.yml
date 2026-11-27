@@ -1,0 +1,38 @@
+name: Teamwork grounding integration
+on:
+  push:
+    paths:
+      - pipeline/**
+      - .github/workflows/teamwork.yml
+  workflow_dispatch:
+  schedule:
+    - cron: '27 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: teamwork-grounding
+  cancel-in-progress: false
+jobs:
+  extraction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install beautifulsoup4 selectolax extruct feedparser pydantic
+      - run: python pipeline/teamwork.py
+      - run: python pipeline/build.py
+      - run: |
+          python - <<'PY'
+          import json, sqlite3
+          a=json.load(open('public/offers.json'))
+          with sqlite3.connect('public/offers.sqlite') as c:
+              assert c.execute('select count(*) from offers').fetchone()[0]==len(a)
+          print('Validated website snapshot:',len(a),'eligible offers')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: teamwork-site-preview
+          path: public/
