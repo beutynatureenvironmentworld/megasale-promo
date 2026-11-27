@@ -1,0 +1,65 @@
+name: Extended crawler and grounding tests
+on:
+  push:
+    paths: ['.github/workflows/crawlers.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - {pkg: crawlee, code: "from crawlee.crawlers import BeautifulSoupCrawler; print(BeautifulSoupCrawler(max_requests_per_crawl=1))"}
+          - {pkg: crawl4ai, code: "from crawl4ai import AsyncWebCrawler; print(AsyncWebCrawler())"}
+          - {pkg: scrapegraphai, code: "from scrapegraphai.graphs import SmartScraperGraph; print(SmartScraperGraph.__name__)"}
+          - {pkg: scrapling, code: "from scrapling.parser import Selector; assert Selector('<h1>Sale</h1>').css('h1::text').get()=='Sale'"}
+          - {pkg: trafilatura, code: "import trafilatura; assert 'Offer' in trafilatura.extract('<html><body><article><p>Offer details for a sample store and its seasonal promotion.</p></article></body></html>')"}
+          - {pkg: extruct, code: "import extruct; assert extruct.extract('<script type=\"application/ld+json\">{\"name\":\"Sale\"}</script>')['json-ld'][0]['name']=='Sale'"}
+          - {pkg: haystack-ai, code: "from haystack import Document; from haystack.document_stores.in_memory import InMemoryDocumentStore; s=InMemoryDocumentStore(); s.write_documents([Document(content='Sale')]); assert s.count_documents()==1"}
+          - {pkg: llama-index-core, code: "from llama_index.core import Document; assert Document(text='Sale').text=='Sale'"}
+          - {pkg: graphrag, code: "import graphrag; print(graphrag.__file__)"}
+          - {pkg: selenium, code: "from selenium.webdriver.common.by import By; assert By.CSS_SELECTOR=='css selector'"}
+          - {pkg: playwright, code: "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(); page=b.new_page(); page.set_content('<h1>Sale</h1>'); assert page.locator('h1').inner_text()=='Sale'; b.close(); p.stop()"}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - env:
+          PKG: ${{ matrix.pkg }}
+          CODE: ${{ matrix.code }}
+        run: |
+          set -o pipefail
+          mkdir -p evidence
+          (python -m pip install "$PKG" && python -m pip show "$PKG" && if [ "$PKG" = playwright ]; then python -m playwright install --with-deps chromium; fi && /usr/bin/time -v python -c "$CODE") 2>&1 | tee evidence/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-${{ matrix.pkg }}
+          path: evidence/
+  node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: [crawlee, puppeteer]
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - env:
+          PKG: ${{ matrix.pkg }}
+        run: |
+          set -o pipefail
+          mkdir -p evidence
+          (npm install "$PKG" && npm list "$PKG" && if [ "$PKG" = puppeteer ]; then node -e "const p=require('puppeteer'); (async()=>{const b=await p.launch({args:['--no-sandbox']}); try {const page=await b.newPage(); await page.setContent('<h1>Sale</h1>'); if(await page.\$eval('h1',e=>e.textContent)!=='Sale') throw Error('fixture');} finally {await b.close()}})()"; else node -e "const {CheerioCrawler}=require('crawlee'); console.log(new CheerioCrawler({maxRequestsPerCrawl:1}).constructor.name)"; fi) 2>&1 | tee evidence/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-${{ matrix.pkg }}
+          path: evidence/
