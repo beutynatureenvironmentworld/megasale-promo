@@ -1,0 +1,29 @@
+name: Search teamwork preview
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/search-teamwork.yml'
+      - 'pipeline/search_discovery.py'
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install httpx beautifulsoup4 selectolax extruct feedparser pydantic rapidfuzz rank-bm25 diskcache tenacity
+      - run: python pipeline/teamwork.py
+      - run: python pipeline/hybrid_preview.py
+      - run: python pipeline/search_discovery.py
+        env:
+          SEARXNG_URL: ${{ vars.SEARXNG_URL }}
+      - run: python pipeline/live_discovery.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: search-teamwork-review
+          path: public/
