@@ -1,0 +1,93 @@
+name: Local research agents functional comparison
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/local-agent-comparison.yml']
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: [gpt-researcher, local-deep-research, browser-use]
+    env:
+      ANONYMIZED_TELEMETRY: 'false'
+      OLLAMA_BASE_URL: http://127.0.0.1:11434
+      FAST_LLM: ollama:qwen2.5:3b
+      SMART_LLM: ollama:qwen2.5:3b
+      STRATEGIC_LLM: ollama:qwen2.5:3b
+      EMBEDDING: ollama:nomic-embed-text
+      LDR_LLM_PROVIDER: ollama
+      LDR_LLM_MODEL: qwen2.5:3b
+      LDR_LLM_OLLAMA_URL: http://127.0.0.1:11434
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Start local inference
+        run: |
+          docker run -d --name ollama -p 127.0.0.1:11434:11434 ollama/ollama:latest
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:11434/api/tags && break; sleep 2; done
+          docker exec ollama ollama pull qwen2.5:3b
+          docker exec ollama ollama pull nomic-embed-text
+      - name: Install selected agent
+        env:
+          AGENT: ${{ matrix.agent }}
+        run: |
+          pip install "$AGENT" langchain-ollama
+          if [ "$AGENT" = browser-use ]; then python -m playwright install --with-deps chromium; fi
+      - name: Run research against controlled merchant evidence
+        env:
+          AGENT: ${{ matrix.agent }}
+          DOC_PATH: ./fixture-docs
+        run: |
+          mkdir -p fixture-docs public
+          cat > fixture-docs/promotion.txt <<'EOF'
+          This is a synthetic merchant test. Fictional coupon: LABPROMO27. Discount: 27 percent. Minimum spend: 80 USD. Eligible country: United States only. Expiry: 2099-11-30. Excludes gift cards. No actual promotion exists.
+          EOF
+          python - <<'PY'
+          import os,asyncio,pathlib,json,threading,re
+          from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
+          agent=os.environ["AGENT"]
+          query="Use only the supplied fictional merchant source. Report exact coupon code, discount percentage, minimum spend and currency, country, expiry date, and exclusion. State that the data is synthetic. Do not invent additional facts."
+          text=pathlib.Path("fixture-docs/promotion.txt").read_text()
+          async def gptr():
+              from gpt_researcher import GPTResearcher
+              r=GPTResearcher(query=query,report_type="research_report",report_source="local")
+              await r.conduct_research()
+              return await r.write_report()
+          def ldr():
+              from local_deep_research.api import quick_summary
+              from langchain_core.retrievers import BaseRetriever
+              from langchain_core.documents import Document
+              class FixtureRetriever(BaseRetriever):
+                  def _get_relevant_documents(self,query,*,run_manager):
+                      return [Document(page_content=text,metadata={"source":"fixture://promotion.txt","title":"Synthetic merchant terms"})]
+              return quick_summary(query=query,retrievers={"fixture":FixtureRetriever()},search_tool="fixture")
+          async def browser():
+              from browser_use import Agent,ChatOllama
+              pathlib.Path("fixture-docs/index.html").write_text("<html><body><h1>Controlled merchant fixture</h1><p>"+text+"</p></body></html>")
+              from functools import partial
+              server=ThreadingHTTPServer(("127.0.0.1",0),partial(SimpleHTTPRequestHandler,directory="fixture-docs"))
+              threading.Thread(target=server.serve_forever,daemon=True).start()
+              try:
+                  url=f"http://127.0.0.1:{server.server_port}/"
+                  h=await Agent(task=f"Open only {url}. "+query,llm=ChatOllama(model="qwen2.5:3b")).run(max_steps=8)
+                  return h.final_result()
+              finally:server.shutdown()
+          result=asyncio.run(gptr()) if agent=="gpt-researcher" else ldr() if agent=="local-deep-research" else asyncio.run(browser())
+          answer=json.dumps(result,default=str)
+          fields={"code":"LABPROMO27" in answer,"discount":bool(re.search(r"27\s*(?:%|percent)",answer,re.I)),"minimum_spend":bool(re.search(r"(?:\$\s*80|80\s*(?:USD|dollars)|USD\s*80)",answer,re.I)),"region":bool(re.search(r"United States|\bUS\b|\bUSA\b",answer)),"expiry":"2099-11-30" in answer or "November 30, 2099" in answer,"exclusion":"gift cards" in answer.lower(),"synthetic":bool(re.search(r"synthetic|fictional",answer,re.I))}
+          report={"agent":agent,"fixture_only":True,"fields":fields,"answer":result}
+          pathlib.Path("public/agent-score.json").write_text(json.dumps(report,default=str,indent=2))
+          print("AGENT_SCORE",agent,sum(fields.values()),len(fields),json.dumps(fields),flush=True)
+          assert all(fields.values()),"Incomplete fixture facts"
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-score-${{ matrix.agent }}
+          path: public/
