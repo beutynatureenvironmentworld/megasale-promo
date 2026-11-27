@@ -1,0 +1,47 @@
+name: Search engines Docker retry
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/search-docker-retry.yml']
+permissions:
+  contents: read
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: 4get
+            repo: https://git.lolcat.ca/lolcat/4get.git
+          - name: vane
+            repo: https://github.com/ItzCrazyKns/Vane.git
+    steps:
+      - name: Clone and build upstream Dockerfile
+        env:
+          REPO: ${{ matrix.repo }}
+          ENGINE: ${{ matrix.name }}
+        run: |
+          git clone --depth 1 "$REPO" upstream
+          cd upstream
+          git rev-parse HEAD
+          cat Dockerfile
+          cat docker-compose.yaml
+          docker build -t "megasale-$ENGINE" .
+          docker image inspect "megasale-$ENGINE" --format '{{json .Config.ExposedPorts}}'
+      - name: Runtime startup and HTTP probe
+        env:
+          ENGINE: ${{ matrix.name }}
+        run: |
+          PORT=$(docker image inspect "megasale-$ENGINE" --format '{{range $k,$v := .Config.ExposedPorts}}{{$k}} {{end}}' | cut -d' ' -f1 | cut -d/ -f1)
+          test -n "$PORT"
+          docker run -d --name engine -p "127.0.0.1:8890:$PORT" "megasale-$ENGINE"
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 5 http://127.0.0.1:8890/ >/dev/null; then exit 0; fi
+            sleep 3
+          done
+          docker logs --tail 100 engine
+          exit 1
+      - if: always()
+        run: docker rm -f engine || true
