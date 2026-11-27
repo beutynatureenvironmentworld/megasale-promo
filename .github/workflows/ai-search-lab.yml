@@ -1,0 +1,63 @@
+name: AI search engine integration lab
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/ai-search-lab.yml']
+permissions:
+  contents: read
+jobs:
+  models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [Qwen/Qwen2.5-0.5B-Instruct, deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B]
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install transformers accelerate
+      - env:
+          MODEL: ${{ matrix.model }}
+        run: |
+          python - <<'PY'
+          import os,torch
+          from transformers import AutoTokenizer,AutoModelForCausalLM
+          name=os.environ['MODEL']
+          t=AutoTokenizer.from_pretrained(name)
+          m=AutoModelForCausalLM.from_pretrained(name,torch_dtype=torch.float32)
+          x=t("Generate three search queries for official merchant Black Friday coupons. Queries only:",return_tensors="pt")
+          y=m.generate(**x,max_new_tokens=64,do_sample=False)
+          result=t.decode(y[0][x.input_ids.shape[1]:],skip_special_tokens=True)
+          assert result.strip()
+          print(result)
+          PY
+  engines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: 4get
+            repo: https://git.lolcat.ca/lolcat/4get.git
+          - name: Vane
+            repo: https://github.com/ItzCrazyKns/Vane.git
+          - name: deep-research
+            repo: https://github.com/dzhng/deep-research.git
+    steps:
+      - name: Fetch upstream and inspect installation manifest
+        env:
+          REPO: ${{ matrix.repo }}
+        run: |
+          git clone --depth 1 "$REPO" upstream
+          cd upstream
+          git rev-parse HEAD
+          ls -la
+          find . -maxdepth 2 \( -iname '*dockerfile*' -o -name 'package.json' -o -name 'composer.json' -o -iname '*compose*yml' \) -print
+      - name: Install dependencies where supported
+        run: |
+          cd upstream
+          if [ -f package-lock.json ]; then npm ci --ignore-scripts; elif [ -f pnpm-lock.yaml ]; then corepack enable; pnpm install --frozen-lockfile --ignore-scripts; elif [ -f composer.json ]; then composer install --no-interaction --no-scripts --no-plugins; else echo 'Manual runtime configuration required'; exit 1; fi
