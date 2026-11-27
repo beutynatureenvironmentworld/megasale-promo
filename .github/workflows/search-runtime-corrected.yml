@@ -1,0 +1,32 @@
+name: Corrected search engine runtime
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/search-runtime-corrected.yml']
+permissions:
+  contents: read
+jobs:
+  fourget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - run: |
+          git clone --depth 1 https://git.lolcat.ca/lolcat/4get.git upstream
+          docker build -t megasale-4get upstream
+          docker run -d --name fourget -e FOURGET_PROTO=http -p 127.0.0.1:8890:80 megasale-4get
+          for i in $(seq 1 30); do curl -fsS --max-time 5 http://127.0.0.1:8890/ >/dev/null && exit 0; sleep 3; done
+          docker logs fourget
+          exit 1
+      - if: always()
+        run: docker rm -f fourget || true
+  vane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - run: |
+          docker run -d --name vane -p 127.0.0.1:3000:3000 itzcrazykns1337/vane:latest
+          for i in $(seq 1 60); do curl -fsS --max-time 5 http://127.0.0.1:3000/ >/dev/null && exit 0; sleep 3; done
+          docker logs --tail 80 vane
+          exit 1
+      - if: always()
+        run: docker rm -f vane || true
