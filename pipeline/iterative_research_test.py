@@ -11,7 +11,7 @@ from rank_bm25 import BM25Plus
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 PAGES={
-"/robots.txt":b"User-agent: *\nAllow: /\nDisallow: /private\n",
+"/robots.txt":b"User-agent: *\nDisallow: /private\nAllow: /\n",
 "/":b"<html><body><h1>Fixture shop</h1><a href='/season'>Seasonal promotion</a></body></html>",
 "/season":b"<html><body><article><h1>Fixture November sale</h1><p>Example discount 10 percent. Synthetic benchmark only.</p><a href='/terms'>Promotion terms</a></article></body></html>",
 "/terms":b"<html><body><h1>Promotion terms</h1><p>Fixture only: eligible region US; expiry 2099-11-30.</p></body></html>"
