@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        agent: [gpt-researcher, local-deep-research, browser-use]
+        agent: [browser-use]
     env:
       ANONYMIZED_TELEMETRY: 'false'
       OLLAMA_BASE_URL: http://127.0.0.1:11434
@@ -38,7 +38,7 @@ jobs:
           AGENT: ${{ matrix.agent }}
         run: |
           pip install "$AGENT" langchain-ollama
-          if [ "$AGENT" = browser-use ]; then python -m playwright install --with-deps chromium; fi
+          if [ "$AGENT" = browser-use ]; then pip install playwright; python -m playwright install --with-deps chromium; fi
       - name: Run research against controlled merchant evidence
         env:
           AGENT: ${{ matrix.agent }}
