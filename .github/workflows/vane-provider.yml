@@ -1,0 +1,54 @@
+name: Vane local model provider verification
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/vane-provider.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Start isolated local services
+        run: |
+          docker network create vane-lab
+          mkdir -p /tmp/searxng-config
+          printf 'use_default_settings: true\nserver:\n  secret_key: "%s"\n  limiter: false\nsearch:\n  formats: [html, json]\n' "$(openssl rand -hex 32)" > /tmp/searxng-config/settings.yml
+          docker run -d --network vane-lab --name searxng -p 127.0.0.1:8888:8080 -v /tmp/searxng-config:/etc/searxng searxng/searxng:latest
+          docker run -d --network vane-lab --name ollama -p 127.0.0.1:11434:11434 ollama/ollama:latest
+          docker run -d --network vane-lab --name vane -e SEARXNG_API_URL=http://searxng:8080 -p 127.0.0.1:3000:3000 itzcrazykns1337/vane:slim-latest
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:3000/api/providers >/dev/null && curl -fsS http://127.0.0.1:11434/api/tags >/dev/null && curl -fsS http://127.0.0.1:8888/ >/dev/null && exit 0; sleep 3; done
+          exit 1
+      - name: Download chat and embedding models
+        run: |
+          docker exec ollama ollama pull qwen2.5:3b
+          docker exec ollama ollama pull nomic-embed-text
+      - name: Register Ollama and verify cited search
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json,pathlib
+          def call(url,data=None,timeout=300):
+              req=urllib.request.Request(url,data=json.dumps(data).encode() if data is not None else None,headers={"Content-Type":"application/json"})
+              with urllib.request.urlopen(req,timeout=timeout) as r:return json.load(r)
+          base="http://127.0.0.1:3000"
+          registered=call(base+"/api/providers",{"type":"ollama","name":"MegaSale local","config":{"baseURL":"http://ollama:11434"}})
+          providers=call(base+"/api/providers")["providers"]
+          p=next(x for x in providers if x["name"]=="MegaSale local")
+          chat=next(m["key"] for m in p["chatModels"] if m["key"].startswith("qwen2.5:3b"))
+          embedding=next(m["key"] for m in p["embeddingModels"] if m["key"].startswith("nomic-embed-text"))
+          print("PROVIDER_REGISTERED",chat,embedding,flush=True)
+          result=call(base+"/api/search",{"chatModel":{"providerId":p["id"],"key":chat},"embeddingModel":{"providerId":p["id"],"key":embedding},"optimizationMode":"speed","sources":["web"],"query":"Find official eBay Black Friday sale pages. Cite sources and do not invent coupons.","history":[],"stream":False},timeout=420)
+          urls=[s.get("metadata",{}).get("url") for s in result.get("sources",[])]
+          print("VANE_SOURCES",urls,flush=True)
+          pathlib.Path("public").mkdir(exist_ok=True)
+          pathlib.Path("public/vane-provider-test.json").write_text(json.dumps({"chat":chat,"embedding":embedding,"sources":urls,"answer":result.get("message"),"status":"candidate_only"},indent=2))
+          assert urls and result.get("message"),"No cited answer"
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vane-provider-evidence
+          path: public/
+      - if: failure()
+        run: docker logs --tail 80 vane
