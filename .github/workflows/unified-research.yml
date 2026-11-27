@@ -1,0 +1,104 @@
+name: Unified marketplace research integration
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/unified-research.yml']
+permissions:
+  contents: read
+jobs:
+  search-and-ground:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install AI and extraction stack
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers accelerate sentence-transformers httpx beautifulsoup4 selectolax lxml extruct feedparser pydantic rapidfuzz rank-bm25 diskcache tenacity trafilatura playwright
+          python -m playwright install --with-deps chromium
+      - name: Start self-hosted SearXNG
+        run: |
+          mkdir -p /tmp/searxng-config
+          printf 'use_default_settings: true\nserver:\n  secret_key: "%s"\n  limiter: false\nsearch:\n  formats: [html, json]\n' "$(openssl rand -hex 32)" > /tmp/searxng-config/settings.yml
+          docker network create research
+          docker run -d --network research --name searxng -p 127.0.0.1:8888:8080 -v /tmp/searxng-config:/etc/searxng searxng/searxng:latest
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8888/ >/dev/null && exit 0; sleep 3; done
+          exit 1
+      - name: Start 4get and Vane
+        continue-on-error: true
+        run: |
+          git clone --depth 1 https://git.lolcat.ca/lolcat/4get.git /tmp/fourget
+          docker build -t megasale-4get /tmp/fourget
+          docker run -d --name fourget -e FOURGET_PROTO=http -p 127.0.0.1:8890:80 megasale-4get
+          docker run -d --network research --name vane -e SEARXNG_API_URL=http://searxng:8080 -p 127.0.0.1:3000:3000 itzcrazykns1337/vane:slim-latest
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8890/ >/dev/null && curl -fsS http://127.0.0.1:3000/ >/dev/null && exit 0; sleep 3; done
+          exit 1
+      - name: Main marketplace AI discovery
+        env:
+          SEARXNG_URL: http://127.0.0.1:8888
+          AI_MODEL: Qwen/Qwen2.5-0.5B-Instruct
+        run: python pipeline/marketplace_discovery.py
+      - name: Search API and crawler integration probes
+        env:
+          SEARXNG_URL: http://127.0.0.1:8888
+          FOURGET_URL: http://127.0.0.1:8890
+          VANE_URL: http://127.0.0.1:3000
+        run: python pipeline/multi_engine_research.py
+      - name: Merge discovered sources without approving them
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('public/discovery-review.json')
+          a=json.loads(p.read_text())
+          b=json.loads(pathlib.Path('public/multi-engine-review.json').read_text())
+          existing={r['url'] for r in a['candidates']}
+          a['candidates'] += [r for r in b['candidates'] if r['url'] not in existing]
+          p.write_text(json.dumps(a,indent=2))
+          PY
+      - run: python pipeline/policy_gate.py
+      - run: python pipeline/build.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unified-research-evidence
+          path: public/
+  extra-crawlers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: scrapy
+            module: scrapy
+          - package: crawl4ai
+            module: crawl4ai
+          - package: scrapling
+            module: scrapling
+          - package: firecrawl-py
+            module: firecrawl
+          - package: crawlee
+            module: crawlee
+          - package: selenium
+            module: selenium
+          - package: qdrant-client
+            module: qdrant_client
+          - package: faiss-cpu
+            module: faiss
+          - package: haystack-ai
+            module: haystack
+          - package: llama-index
+            module: llama_index
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - env:
+          PACKAGE: ${{ matrix.package }}
+          MODULE: ${{ matrix.module }}
+        run: |
+          pip install "$PACKAGE"
+          python -c 'import importlib,os; importlib.import_module(os.environ["MODULE"]); print("IMPORT PASS",os.environ["PACKAGE"])'
