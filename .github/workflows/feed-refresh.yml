@@ -1,0 +1,27 @@
+name: Hourly feed refresh
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: promo-feed-refresh
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pydantic beautifulsoup4 feedparser
+      - run: python pipeline/build.py
+      - run: python -c "import json; s=json.load(open('public/status.json')); print(s); assert not s['errors']"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hourly-snapshot
+          path: public/
+          retention-days: 1
