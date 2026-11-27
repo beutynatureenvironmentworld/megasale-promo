@@ -1,0 +1,43 @@
+name: Corrected engine retries
+on:
+  push:
+    paths: ['.github/workflows/retry.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: duckdb
+            packages: "duckdb"
+            code: "import duckdb; assert duckdb.connect().execute('select 42').fetchone()[0]==42"
+          - name: selectolax
+            packages: "selectolax"
+            code: "from selectolax.lexbor import LexborHTMLParser; assert LexborHTMLParser('<h1>Sale</h1>').css_first('h1').text()=='Sale'"
+          - name: crawlee
+            packages: "crawlee[beautifulsoup]"
+            code: "from crawlee.crawlers import BeautifulSoupCrawler; print(BeautifulSoupCrawler(max_requests_per_crawl=1))"
+          - name: scrapegraphai
+            packages: "scrapegraphai langchain-community==0.3.27"
+            code: "from scrapegraphai.graphs import SmartScraperGraph; print(SmartScraperGraph.__name__)"
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - env:
+          PACKAGES: ${{ matrix.packages }}
+          CODE: ${{ matrix.code }}
+        run: |
+          set -o pipefail
+          mkdir evidence
+          (pip install $PACKAGES && pip freeze && /usr/bin/time -v python -c "$CODE") 2>&1 | tee evidence/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retry-${{ matrix.name }}
+          path: evidence/
