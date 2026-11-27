@@ -1,0 +1,36 @@
+name: Merchant discovery verification
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/merchant-discovery.yml'
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install httpx beautifulsoup4 selectolax extruct feedparser pydantic rapidfuzz rank-bm25 diskcache tenacity playwright
+      - run: python -m playwright install --with-deps chromium
+      - run: python pipeline/teamwork.py
+      - run: python pipeline/hybrid_preview.py
+      - name: Browser smoke test (local fixture only)
+        run: |
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              browser=p.chromium.launch()
+              page=browser.new_page()
+              page.set_content('<h1>Merchant fixture</h1>')
+              assert page.locator('h1').inner_text()=='Merchant fixture'
+              browser.close()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: merchant-verification-preview
+          path: public/
