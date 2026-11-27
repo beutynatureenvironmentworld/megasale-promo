@@ -1,0 +1,26 @@
+name: Iterative crawler research functional test
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/iterative-research.yml','pipeline/iterative_research_test.py']
+permissions:
+  contents: read
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install crawl4ai scrapy sentence-transformers httpx beautifulsoup4 rank-bm25 pydantic
+          python -m playwright install --with-deps chromium
+      - run: python pipeline/iterative_research_test.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iterative-research-evidence
+          path: public/
