@@ -1,0 +1,122 @@
+[
+  {
+    "name": "Amazon",
+    "route": "Creators API",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "eBay",
+    "route": "Browse / Feed API",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "AliExpress",
+    "route": "Affiliate API / approved feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Walmart",
+    "route": "Affiliate feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Target",
+    "route": "Affiliate feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Best Buy",
+    "route": "Developer API / affiliate feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Etsy",
+    "route": "Open API",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Daraz",
+    "route": "Approved affiliate feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Shopee",
+    "route": "Affiliate feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Lazada",
+    "route": "Affiliate feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Flipkart",
+    "route": "Affiliate feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Rakuten",
+    "route": "Affiliate network feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Temu",
+    "route": "Approved partner feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "SHEIN",
+    "route": "Approved partner feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Nike",
+    "route": "Affiliate feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Adidas",
+    "route": "Affiliate feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Samsung",
+    "route": "Affiliate feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Apple",
+    "route": "Approved partner feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "iHerb",
+    "route": "Affiliate feed",
+    "status": "pending_access",
+    "enabled": false
+  },
+  {
+    "name": "Booking.com",
+    "route": "Approved partner API",
+    "status": "pending_access",
+    "enabled": false
+  }
+]
