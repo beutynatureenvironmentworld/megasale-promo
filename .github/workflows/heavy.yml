@@ -1,0 +1,53 @@
+name: Heavy engine tests
+on:
+  push:
+    paths: ['.github/workflows/heavy.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - name: colly
+            command: "go mod init fixture; go get github.com/gocolly/colly/v2; go list -m all; go test github.com/gocolly/colly/v2 -run TestCollector"
+          - name: spider
+            command: "cargo install spider_cli --locked; spider --help"
+          - name: firecrawl
+            command: "git clone --depth 1 https://github.com/firecrawl/firecrawl.git src; cd src; docker compose config; docker compose build; docker compose up -d; curl --retry 12 --retry-all-errors --retry-delay 5 -f http://localhost:3002/"
+          - name: nutch
+            command: "git clone --depth 1 https://github.com/apache/nutch.git src; cd src; ant runtime; runtime/local/bin/nutch"
+          - name: stormcrawler
+            command: "git clone --depth 1 https://github.com/apache/stormcrawler.git src; cd src; mvn -B test"
+          - name: heritrix
+            command: "git clone --depth 1 https://github.com/internetarchive/heritrix3.git src; cd src; mvn -B test"
+          - name: searxng
+            command: "docker pull searxng/searxng:latest; docker run -d -p 8080:8080 searxng/searxng:latest; curl --retry 10 --retry-all-errors -f http://localhost:8080/"
+          - name: llama-cpp
+            command: "git clone --depth 1 https://github.com/ggml-org/llama.cpp.git src; cmake -S src -B build -DLLAMA_CURL=OFF; cmake --build build -j2; build/bin/llama-cli --version"
+          - name: fts5
+            command: "python -c \"import sqlite3; c=sqlite3.connect(':memory:'); c.execute('create virtual table t using fts5(body)'); c.execute(\\\"insert into t values ('sale')\\\"); assert c.execute(\\\"select count(*) from t where t match 'sale'\\\").fetchone()[0]==1\""
+          - name: common-crawl
+            command: "curl -fsS https://index.commoncrawl.org/collinfo.json | python -c 'import json,sys; assert json.load(sys.stdin)[0][\"cdx-api\"]'"
+          - name: sitemap
+            command: "python -c 'import xml.etree.ElementTree as E; assert E.fromstring(\"<urlset><url><loc>https://example.org/</loc></url></urlset>\").findtext(\"url/loc\")'"
+    steps:
+      - name: Install and test
+        env:
+          COMMAND: ${{ matrix.command }}
+        run: |
+          set -o pipefail
+          mkdir evidence
+          df -h > evidence/resources.txt
+          free -m >> evidence/resources.txt
+          /usr/bin/time -v bash -ec "$COMMAND" 2>&1 | tee evidence/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-${{ matrix.name }}
+          path: evidence/
